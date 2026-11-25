@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vocab Duel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
 /* VOICE: loud, friendly quiz-show duel between two friends
@@ -344,68 +344,75 @@ $("again").onclick=()=>{
 };
 $("endLeave").onclick=()=>{if(online)leaveRoom();else showScreen("setup")};
 
-/* ---------- online (PeerJS, direct device-to-device) ---------- */
+/* ---------- online (relay through a public MQTT broker: works behind any router) ---------- */
 const err=t=>{$("onlineErr").textContent=t};
-let peer=null,conn=null;
-const send=o=>{try{if(conn&&conn.open)conn.send(o)}catch(e){}};
+const BROKER="wss://broker.hivemq.com:8884/mqtt";
+let cli=null,base="",myId="",partner=null,lastSeen=0,pinger=null,joinTimer=null;
+const linkOk=()=>!!partner&&Date.now()-lastSeen<7000;
+function send(o){if(!cli||!cli.connected||!base)return;o.from=myId;try{cli.publish(base+(online==="host"?"g":"h"),JSON.stringify(o))}catch(e){}}
 function updLobby(){
-  const ok=!!(conn&&conn.open);
+  const ok=linkOk();
   $("dot").classList.toggle("on",ok);
   if(online==="host"){
-    guestPeer=ok?"guest":null;
+    guestPeer=ok?partner:null;
     $("lobbyStatus").textContent=ok?`${guestName} joined! Ready when you are.`:"Waiting for your friend…";
     $("go").disabled=!ok;
-    $("net").textContent=(G&&G.phase!=="end"&&!ok)?"Your friend disconnected.":"";
-  }else{
-    $("lobbyStatus").textContent=ok?`Connected to ${hostName}. Waiting for them to start…`:"Connecting…";
-    $("net").textContent=(V&&!ok&&!$("game").classList.contains("hide"))?"The host disconnected.":"";
+    $("net").textContent=(G&&G.phase!=="end"&&!ok)?"Your friend's connection dropped… waiting for them.":"";
+  }else if(online==="guest"){
+    $("lobbyStatus").textContent=ok?`Connected to ${hostName}. Waiting for them to start…`:(partner?"Reconnecting…":"Looking for the game…");
+    $("net").textContent=(V&&!ok&&!$("game").classList.contains("hide"))?"Connection to the host dropped… trying again.":"";
   }
 }
-function onData(d){
-  if(!d||typeof d!=="object")return;
-  if(d.t==="hello"){const n=String(d.nm||"").slice(0,14)||"Friend";if(online==="host")guestName=n;else hostName=n;updLobby();return}
-  if(online==="host"&&d.t==="ans"){const a=d.a||{};if(!G||a.g!==G.id||a.i!==G.i)return;pick(1,Math.floor(+a.o),Math.max(0,Math.min(60000,+a.rt||0)));return}
-  if(online==="guest"&&d.t==="state"){const v=d.v;if(!v||typeof v!=="object")return;
-    if(v.ph==="lobby"){showScreen("lobby");updLobby();return}
-    if(!Array.isArray(v.names)||!Array.isArray(v.sc))return;render(v)}
-}
-function wire(c){
-  conn=c;
-  c.on("open",()=>{send({t:"hello",nm:nm("n1")});updLobby();if(online==="host"&&G)send({t:"state",v:snap()})});
-  c.on("data",onData);
-  c.on("close",()=>{if(conn===c)conn=null;updLobby()});
-  c.on("error",()=>updLobby());
+function onMsg(_t,buf){
+  let d;try{d=JSON.parse(buf.toString())}catch(e){return}
+  if(!d||typeof d!=="object"||typeof d.from!=="string"||d.from===myId)return;
+  if(online==="host"){
+    if(partner&&d.from!==partner&&linkOk())return;   // one friend at a time
+    if(partner!==d.from){partner=d.from}
+    lastSeen=Date.now();
+    if(d.t==="hello"){guestName=String(d.nm||"").slice(0,14)||"Friend";send({t:"hi",nm:nm("n1")});if(G)send({t:"state",v:snap()});updLobby();return}
+    if(d.t==="ans"){const a=d.a||{};if(!G||a.g!==G.id||a.i!==G.i)return;pick(1,Math.floor(+a.o),Math.max(0,Math.min(60000,+a.rt||0)))}
+  }else if(online==="guest"){
+    if(partner&&d.from!==partner)return;
+    partner=d.from;lastSeen=Date.now();
+    if(joinTimer){clearTimeout(joinTimer);joinTimer=null}
+    if(d.t==="hi"){hostName=String(d.nm||"").slice(0,14)||"Host";updLobby();return}
+    if(d.t==="state"){const v=d.v;if(!v||typeof v!=="object")return;
+      if(v.ph==="lobby"){showScreen("lobby");updLobby();return}
+      if(!Array.isArray(v.names)||!Array.isArray(v.sc))return;render(v)}
+  }
 }
 function enter(role,code){
   err("");saveNames();
-  if(typeof Peer!=="function"){err("Couldn't load the online part. Check your internet and refresh.");return}
-  if(peer)try{peer.destroy()}catch(e){}
-  online=role;me=role==="host"?0:1;gid="";V=null;curKey="";conn=null;
-  const id="vocabduel-"+code.toLowerCase();
-  peer=role==="host"?new Peer(id):new Peer();
-  peer.on("error",e=>{
-    if(e.type==="unavailable-id"&&role==="host"){$("create").click();return}
-    if(e.type==="peer-unavailable"){err("No game found with that code. Check it and try again.");leaveRoom(true);return}
-    if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"){err("Connection problem. Check your internet and try again.");}
-    updLobby();
-  });
-  if(role==="host"){
-    peer.on("open",()=>{showScreen("lobby");updLobby()});
-    peer.on("connection",c=>{if(conn&&conn.open){try{c.close()}catch(e){}return}wire(c)});
-    clearInterval(hb);hb=setInterval(()=>{if(online==="host"&&G)send({t:"state",v:snap()})},1500);
-    $("hostView").classList.remove("hide");$("codeShow").textContent=code.toUpperCase();$("go").classList.remove("hide");
-  }else{
-    peer.on("open",()=>{wire(peer.connect(id,{reliable:true}))});
-    $("hostView").classList.add("hide");$("go").classList.add("hide");
-    showScreen("lobby");
-  }
-  document.body.classList.remove("flip");
+  if(typeof mqtt==="undefined"){err("Couldn't load the online part. Check your internet and refresh the page.");return}
+  leaveRoom(true);
+  online=role;me=role==="host"?0:1;gid="";V=null;curKey="";partner=null;lastSeen=0;
+  myId=Math.random().toString(36).slice(2,10);
+  base="vocabduel/v2/"+code.toLowerCase()+"/";
+  showScreen("lobby");document.body.classList.remove("flip");
   $("lobbyStatus").textContent="Connecting…";$("dot").classList.remove("on");$("go").disabled=true;
+  if(role==="host"){$("hostView").classList.remove("hide");$("codeShow").textContent=code.toUpperCase();$("go").classList.remove("hide")}
+  else{$("hostView").classList.add("hide");$("go").classList.add("hide")}
+  cli=mqtt.connect(BROKER,{clientId:"vd_"+myId,reconnectPeriod:2000,connectTimeout:10000,keepalive:20,clean:true});
+  cli.on("connect",()=>{
+    cli.subscribe(base+(role==="host"?"h":"g"),{qos:0});
+    if(role==="host")$("lobbyStatus").textContent="Waiting for your friend…";
+    else{$("lobbyStatus").textContent="Looking for the game…";send({t:"hello",nm:nm("n1")})}
+  });
+  cli.on("message",onMsg);
+  cli.on("error",()=>err("Connection problem. Check your internet."));
+  cli.on("offline",()=>{$("net").textContent="You're offline… reconnecting.";$("dot").classList.remove("on")});
+  pinger=setInterval(()=>{
+    if(role==="host"){if(G)send({t:"state",v:snap()});else if(partner)send({t:"hi",nm:nm("n1")})}
+    else send({t:"hello",nm:nm("n1")});
+    updLobby();
+  },1200);
+  if(role==="guest")joinTimer=setTimeout(()=>{if(!partner){err("No game found with that code. Check the code, and make sure your friend is still on the code screen.");leaveRoom(true)}},15000);
 }
 function leaveRoom(keepErr){
-  clearTimers();clearInterval(hb);clearInterval(tick);G=null;
-  try{if(conn)conn.close()}catch(e){}try{if(peer)peer.destroy()}catch(e){}
-  conn=null;peer=null;online=null;me=null;guestPeer=null;
+  clearTimers();clearInterval(hb);clearInterval(tick);clearInterval(pinger);clearTimeout(joinTimer);joinTimer=null;G=null;
+  try{if(cli)cli.end(true)}catch(e){}
+  cli=null;online=null;me=null;guestPeer=null;partner=null;
   showScreen("setup");
 }
 $("create").onclick=()=>{const c=Array.from({length:4},()=>"abcdefghjkmnpqrstuvwxyz23456789"[Math.floor(Math.random()*31)]).join("");enter("host",c)};
