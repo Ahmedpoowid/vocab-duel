@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vocab Duel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: loud, friendly quiz-show duel between two friends
+   IDEA: a game-show podium: two buzzer panels facing each other, question card in the middle
+   PICTURE: the live board itself — split red/blue panels with big answer buzzers
+   COLOUR and TYPE: warm paper ground, red #e8364f vs blue #2f6bff, yellow #ffc933 accent; Baloo 2
+   LAYOUT: side-by-side panels on laptops, stacked on tablets/phones */
+:root{color-scheme:light dark;--bg:light-dark(#fbf6ec,#16161d);--ink:light-dark(#1c1b22,#f3f0ea);--card:light-dark(#ffffff,#24242e);--line:light-dark(#e6dfd1,#353544);--red:#e8364f;--blue:#2f6bff;--yel:#ffc933;--mut:light-dark(#6b6776,#a9a5b4)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 "Baloo 2",system-ui,sans-serif;overflow-x:clip;min-height:100vh}
+button{font:inherit;cursor:pointer;border:0;color:inherit}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--yel);outline-offset:2px}
+.hide{display:none!important}
+.wrap{max-width:740px;margin:0 auto;padding:clamp(24px,5vw,56px) 18px}
+h1{font-size:clamp(40px,8vw,64px);line-height:1;margin:0 0 6px;font-weight:800;letter-spacing:-.5px}
+h1 .r{color:var(--red)}h1 .b{color:var(--blue)}
+h2{font-size:24px;margin:0 0 8px;line-height:1.1}
+.sub{color:var(--mut);margin:0 0 22px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+label{display:block;font-weight:700;margin-bottom:4px}
+input,select{width:100%;font:inherit;font-size:17px;padding:10px 12px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--ink);min-height:48px}
+.p1 input{border-color:var(--red)}.p2 input{border-color:var(--blue)}
+.field{margin-bottom:14px}
+.big{display:block;width:100%;margin-top:6px;padding:13px;border-radius:16px;background:var(--yel);color:#1c1b22;font-size:22px;font-weight:800;box-shadow:0 5px 0 #c99a12}
+.big:active{transform:translateY(3px);box-shadow:0 2px 0 #c99a12}
+.big.alt{background:var(--ink);color:var(--bg);box-shadow:0 5px 0 var(--mut)}
+.box{margin-top:20px;background:var(--card);border:2px solid var(--line);border-radius:18px;padding:16px 18px}
+.box ul,.box ol{margin:0;padding-left:20px}.box li{margin:3px 0}
+.join{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-top:12px}
+.join button{min-height:48px;padding:0 20px;border-radius:12px;background:var(--blue);color:#fff;font-weight:800}
+.note{color:var(--mut);font-size:15px;margin:8px 0 0}
+.err{color:var(--red);font-weight:700;font-size:15px;margin:8px 0 0;min-height:1px}
+kbd{font:700 14px/1 "Baloo 2",sans-serif;background:var(--bg);border:1.5px solid var(--line);border-radius:6px;padding:2px 6px}
+/* lobby */
+.code{font-size:clamp(56px,14vw,96px);font-weight:800;letter-spacing:.12em;line-height:1;margin:6px 0 4px;color:var(--red)}
+.status{font-size:20px;font-weight:700;margin:10px 0 16px}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--mut);margin-right:8px;vertical-align:middle}
+.dot.on{background:#2ecc71}
+/* game */
+#game{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,1fr);gap:14px;padding:14px;min-height:100vh;align-items:stretch}
+.pane{border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:10px;color:#fff;position:relative;transition:opacity .2s}
+.pane.red{background:var(--red)}.pane.blue{background:var(--blue)}
+.pane.locked{opacity:.45}
+.ph{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pname{font-size:24px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pscore{font-size:46px;font-weight:800;line-height:1}
+.keys{font-size:14px;opacity:.85;margin-top:-6px}
+.opts{display:flex;flex-direction:column;gap:10px}
+.opt{background:rgba(255,255,255,.95);color:#1c1b22;border-radius:14px;padding:10px 12px;text-align:left;min-height:56px;font-size:17px;font-weight:700;line-height:1.2;display:flex;gap:10px;align-items:center;box-shadow:0 4px 0 rgba(0,0,0,.22)}
+.opt:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.22)}
+.opt .k{flex:none;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:15px;color:#fff}
+.red .k{background:var(--red)}.blue .k{background:var(--blue)}
+.opt.good{background:#2ecc71;color:#fff}.opt.bad{background:#1c1b22;color:#fff;text-decoration:line-through}
+.peek .opt{pointer-events:none;opacity:.8;box-shadow:none}
+.flash{position:absolute;inset:0;border-radius:22px;display:grid;place-items:center;font-size:44px;font-weight:800;pointer-events:none;opacity:0;transition:opacity .2s}
+.flash.on{opacity:1}
+.mid{display:flex;flex-direction:column;gap:12px}
+.qcard{flex:1;background:var(--card);border:3px solid var(--ink);border-radius:22px;padding:20px;display:flex;flex-direction:column;justify-content:center;text-align:center;box-shadow:6px 6px 0 var(--ink)}
+.qtag{color:var(--mut);font-weight:700;font-size:15px}
+.q{font-size:clamp(24px,3vw,38px);font-weight:800;line-height:1.15;margin:8px 0;text-wrap:balance;overflow-wrap:anywhere}
+.ans{min-height:52px;font-size:17px;color:var(--mut)}
+.ans b{color:var(--ink)}
+.bar{height:12px;background:var(--line);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:var(--yel);border-radius:99px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:700}
+.small{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:8px 14px;min-height:44px}
+#net{font-size:14px;color:var(--red);font-weight:700;min-height:1px;text-align:center}
+@media(max-width:900px){
+ #game{grid-template-columns:minmax(0,1fr);gap:10px;padding:10px}
+ .pane{gap:8px;padding:12px}
+ .pane .opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .opt{min-height:64px;font-size:15px}
+ .keys{display:none}
+ body.flip .pane.blue{transform:rotate(180deg)}
+ .qcard{padding:14px}
+ .peek .opts{display:none}
+}
+/* results */
+.win{font-size:clamp(36px,7vw,56px);line-height:1.05;font-weight:800;margin:0 0 4px}
+.final{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}
+.final div{border-radius:18px;padding:16px;color:#fff;font-weight:800;font-size:22px;overflow-wrap:anywhere}
+.final b{display:block;font-size:52px;line-height:1}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:14px;overflow:hidden;margin-bottom:10px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:15px;color:var(--mut)}
+@media(max-width:520px){.grid2{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<section id="setup" class="wrap">
+  <h1><span class="r">Vocab</span> <span class="b">Duel</span></h1>
+  <p class="sub">Two players, 125 words from your Term 1 lists. First correct answer wins the point.</p>
+  <div class="grid2">
+    <div class="field p1"><label for="n1">Your name (red)</label><input id="n1" value="Ahmed" maxlength="14"></div>
+    <div class="field p2"><label for="n2">Friend's name (blue, same-device only)</label><input id="n2" value="Friend" maxlength="14"></div>
+  </div>
+  <div class="grid2">
+    <div class="field"><label for="rounds">Questions</label>
+      <select id="rounds"><option>10</option><option selected>20</option><option>30</option><option>50</option><option value="125">All words</option></select></div>
+    <div class="field"><label for="mode">Question type</label>
+      <select id="mode"><option value="mix">Mixed</option><option value="m2w">Meaning → pick the word</option><option value="w2m">Word → pick the meaning</option><option value="gap">Fill the gap (collocations)</option></select></div>
+  </div>
+  <div class="grid2">
+    <div class="field"><label for="secs">Time per question</label>
+      <select id="secs"><option value="10">10 seconds</option><option value="15" selected>15 seconds</option><option value="25">25 seconds</option></select></div>
+    <div class="field"><label for="seat">Seating (same device)</label>
+      <select id="seat"><option value="side">Side by side</option><option value="face">Face to face (tablet flat)</option></select></div>
+  </div>
+
+  <div class="box">
+    <h2>Play online</h2>
+    <p class="note" style="margin-top:0">Each of you on your own device, anywhere. The person who creates the game picks the settings above.</p>
+    <button class="big" id="create">Create online game</button>
+    <div class="join">
+      <div><label for="code">Or join with a code</label><input id="code" maxlength="4" placeholder="e.g. K7PM" autocomplete="off" style="text-transform:uppercase"></div>
+      <button id="joinBtn">Join</button>
+    </div>
+    <p class="err" id="onlineErr"></p>
+  </div>
+
+  <div class="box">
+    <h2>Play on one device</h2>
+    <button class="big alt" id="start">Start same-device duel</button>
+    <p class="note">Laptop: red uses <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd>, blue uses <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd>. Tablet or phone: just tap.</p>
+  </div>
+
+  <div class="box">
+    <h2>Rules</h2>
+    <ul>
+      <li>Right answer first: <b>+1</b>. Wrong answer: <b>−1</b>, and you're locked out of that question.</li>
+      <li>Online, if you both answer right at almost the same time, the faster reaction wins.</li>
+      <li>At the end you get a list of every word someone missed.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="lobby" class="wrap hide">
+  <h1><span class="r">Vocab</span> <span class="b">Duel</span></h1>
+  <div id="hostView">
+    <h2>Send this code to your friend</h2>
+    <div class="code" id="codeShow"></div>
+    <p class="note">They open this same game link, type the code, and press Join.</p>
+  </div>
+  <p class="status"><span class="dot" id="dot"></span><span id="lobbyStatus">Waiting for your friend…</span></p>
+  <button class="big" id="go" disabled>Start game</button>
+  <button class="big alt" id="leave" style="margin-top:14px">Leave</button>
+</section>
+
+<section id="game" class="hide">
+  <div class="pane red" id="pa"></div>
+  <div class="mid">
+    <div class="row"><span id="qnum">Question 1</span><button class="small" id="quit">End game</button></div>
+    <div class="bar"><i id="timer"></i></div>
+    <div id="net"></div>
+    <div class="qcard">
+      <div class="qtag" id="qtag"></div>
+      <div class="q" id="q"></div>
+      <div class="ans" id="ans"></div>
+    </div>
+  </div>
+  <div class="pane blue" id="pb"></div>
+</section>
+
+<section id="end" class="wrap hide">
+  <p class="win" id="win"></p>
+  <div class="final" id="final"></div>
+  <h2 id="misshead">Words to study</h2>
+  <table><thead><tr><th>Word</th><th>Meaning</th></tr></thead><tbody id="miss"></tbody></table>
+  <p class="note" id="endNote"></p>
+  <button class="big" id="again">Play again</button>
+  <button class="big alt" id="endLeave" style="margin-top:14px">Back to menu</button>
+</section>
+
+<script>
+{
+const W=[["enticing","attractive, makes you want it"],["ethic","rules or principles that control how you behave"],["champion (verb)","to support a belief or idea strongly"],["embolden","to give someone courage"],["resiliency","the ability to recover quickly from problems"],["demote","to reduce, or to make lower"],["equitable","fair and balanced for everyone"],["calibration","adjusting a tool so its readings are correct"],["interpret","to explain what something means"],["empowerment","giving people power and confidence"],["marginalize","to treat people as unimportant, to push them aside"],["reconciliation","making peace between two sides again"],["stewardship","taking care of or leading something"],["plausible","reasonable, likely to be true"],["intervention","stepping in to change a situation"],["determinant","a factor that decides or strongly affects a result"],["proverbial","well known, like a famous saying"],["institution","a big organization, like a school or bank"],["interfere with","to stop something from happening or developing as it should"],["phenomenon","an event or fact you can observe, often unusual"],["misconception","a wrong idea or belief"],["empirical","based on observation or experiments, not just theory"],["histogram","a kind of bar chart"],["overtourism","too many tourists in one place"],["sustainable","doesn't harm the future"],["consumption","how much you use"],["experiential","based on experience"],["conservation","protecting nature"],["accommodations","hotels or places to stay"],["proceeds","money you earn from something"],["geotag","location tag on a photo"],["inscribed","officially added to a list"],["intangible heritage","culture you can't touch, like traditions"],["evaporation","water turning into gas"],["gradual slope","ground that goes down slowly"],["basin","a place where water collects"],["family background","where your family comes from and its history"],["government intervention","when the government steps in"],["community care","the community helping people"],["far-reaching consequences","results that affect a lot of things"],["age-related differences","differences caused by age"],["make progress","to get better or move forward"],["pay attention","to focus or listen carefully"],["heavy rain","a lot of rain"],["under the stewardship of","under someone's care or leadership"],["rule of thumb","a practical guide based on experience, not exact math"],["median","the middle number when numbers are in order"],["freshman","a first-year student (US English)"],["grade point average (GPA)","a student's average mark as a number"],["mixed results","some results are good, some are bad"],["inconsistency","when things that should match don't agree"],["variable","a factor that can change and affect a result"],["moderate (verb)","to change how strong something is"],["mounting","growing steadily"],["acquisition","the process of gaining knowledge or a skill"],["stakeholder","a person or group affected by something"],["beg the question","to make people ask another question"],["associated with","connected with"],["devote (time) to","to give time or effort to something"],["influence","to have an effect on someone or something"],["investigate","to examine carefully to find facts"],["explanation","a reason that makes something clear"],["procrastination","delaying tasks you should do now"],["literature review","part of a paper that summarizes earlier research"],["paraphrase","to say someone's idea in your own words"],["quotation","someone's exact words, in quotation marks"],["ellipsis","three dots (...) showing words were left out"],["reference","source details (author, date, page)"],["drop / fall away","to go down in amount"],["soar / surge","to go up quickly and by a lot"],["time-honoured","respected because it has existed a long time"],["outcome","the result of something"],["innovative","using new and original ideas"],["supplement","to add something extra to improve it"],["tailor (verb)","to adapt something for a specific person or need"],["prohibitively expensive","so costly that most people can't afford it"],["mediocrity","being only average, not very good"],["overhaul","to change something completely to improve it"],["comprehensive","complete, includes everything needed"],["spearhead","to lead an effort"],["rote learning","learning by repeating, without understanding"],["drill","to teach by repeated practice"],["enamoured (with)","very fond of or excited about something"],["advocate","a person who publicly supports an idea"],["contend","to say firmly that something is true"],["cope with","to deal successfully with a hard situation"],["gloss over","to avoid giving attention to something difficult"],["uncanny","strange and hard to explain"],["grapple with","to struggle with a difficult problem"],["integral","an essential part of something"],["detrimental","harmful"],["invaluable","extremely useful (NOT \"without value\")"],["sedentary","lots of sitting, little movement"],["time-consuming","takes a lot of time"],["outweigh","to be bigger or more important than something else"],["drawback","a disadvantage"],["instant access","able to use something immediately"],["animation","making moving pictures from drawings or computer images"],["simulation","a computer copy of a real situation"],["believable","easy to accept as real or true"],["vibrancy","bright, lively quality (especially colour)"],["iconic","very famous and important"],["extensive","large, covering a lot"],["noteworthy","deserves attention because it's important or unusual"],["flip (the classroom)","study new lessons at home, practise in class"],["automate","to make a machine do a job without people"],["in vain","without success"],["comfortable","relaxed, at ease"],["desire","a strong wish or hope"],["donate","to give money, time, or goods to help"],["donor","a person who gives to a charity"],["energetic","full of energy"],["funds","money for a specific purpose"],["inaccurate","not correct"],["label (verb)","to name or describe"],["operation","when doctors cut open the body to fix a problem"],["outgoing","friendly and social"],["pattern","the usual way something is done or organized"],["persist","to continue"],["persuade","to convince someone"],["quality","a characteristic"],["reasonable","appropriate, fair"],["recharge","to rest and get energy back"],["reserved","keeps their thoughts private, quiet"],["simplify","to make easier to understand"],["sympathy","feeling sad for someone's bad luck"],["take advantage of","to benefit from a situation"]];
+const G0=[["Certain visas ask about the traveller's family ___.","background",["background","policy","care","satisfaction"]],["Health crises often lead to government ___.","intervention",["intervention","storage","satisfaction","background"]],["Local community ___ groups help travellers.","care",["care","state","storage","background"]],["The simple decision had far-___ consequences.","reaching",["reaching","standing","related","effective"]],["The book discusses age-___ differences.","related",["related","reaching","standing","effective"]],["The team continued to make ___ after revising the plan.","progress",["progress","homework","a research","attention"]],["___ rain cancelled the outdoor match.","Heavy",["Heavy","Tall","Strong","Big"]],["Please ___ attention to the instructions.","pay",["pay","make","do","take"]],["The company did well under the ___ of Dr Aminah.","stewardship",["stewardship","histogram","proverbial","interfere"]],["He believed in the ___ of women.","empowerment",["empowerment","marginalization","determinant","proverbial"]],["We went on a ___ trip during the break.","three-day",["three-day","three days","three-days","three-day's"]],["We watched a ___ film in class.","two-hour",["two-hour","two-hours","two hours","two-hourly"]],["As a rule of ___, study two hours for every class hour.","thumb",["thumb","hand","finger","mind"]],["Long working hours can interfere ___ learning.","with",["with","on","at","to"]],["Students ___ with new ideas when they do homework.","grapple",["grapple","cope","gloss","devote"]],["Teachers often gloss ___ the small steps in a problem.","over",["over","with","up","out"]],["Longer study hours are associated ___ better grades.","with",["with","to","for","by"]],["Schools spent millions, but the effort was in ___.","vain",["vain","vein","vane","vague"]],["The benefits of technology ___ the drawbacks.","outweigh",["outweigh","overhaul","spearhead","supplement"]],["Too much screen time has a ___ effect on sleep.","detrimental",["detrimental","invaluable","integral","iconic"]],["The Internet is an ___ part of modern life.","integral",["integral","uncanny","sedentary","mediocre"]],["One-to-one teaching for every pupil is ___ expensive.","prohibitively",["prohibitively","extensively","comprehensively","instantly"]],["Students should ___ two hours a week to each course.","devote",["devote","donate","persist","drill"]],["Always try to take advantage ___ free study time.","of",["of","on","for","with"]],["There is ___ evidence that students study less than before.","mounting",["mounting","median","moderate","mixed"]]];
+const $=id=>document.getElementById(id);
+const sh=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KEYS=[["a","s","d","f"],["h","j","k","l"]];
+const screens=["setup","lobby","game","end"];
+const showScreen=s=>screens.forEach(x=>$(x).classList.toggle("hide",x!==s));
+
+/* ---------- questions ---------- */
+function makeQ(t){
+  if(t==="gap"){const g=G0[Math.floor(Math.random()*G0.length)];return{tag:"Fill the gap",q:g[0],opts:sh(g[2]),ans:g[1],word:g[1],mean:g[0].replace("___",g[1])}}
+  const i=Math.floor(Math.random()*W.length),[w,m]=W[i];
+  const o=sh(W.filter((_,k)=>k!==i)).slice(0,3);
+  if(t==="m2w")return{tag:"Which word means…",q:m,opts:sh([w,...o.map(x=>x[0])]),ans:w,word:w,mean:m};
+  return{tag:"What does this mean?",q:w,opts:sh([m,...o.map(x=>x[1])]),ans:m,word:w,mean:m};
+}
+function buildQs(n,mode){
+  if(mode==="gap")n=Math.min(n,G0.length);
+  const qs=[],seen=new Set();let tries=0;
+  while(qs.length<n&&tries<6000){tries++;
+    const t=mode==="mix"?(Math.random()<.2?"gap":(Math.random()<.5?"m2w":"w2m")):mode;
+    const q=makeQ(t),k=q.word+"|"+q.q;if(seen.has(k))continue;seen.add(k);qs.push(q)}
+  return qs;
+}
+
+/* ---------- state ---------- */
+let G=null;            // authoritative game (local mode or online host)
+let online=null;       // null | "host" | "guest"
+let me=null;           // online: 0 host (red), 1 guest (blue)
+let guestPeer=null,guestName="Friend",hostName="Host",hb=null;
+let V=null,curKey="",curQ="",shownAt=0,deadline=0,tick=null,sentFor="",misses=[],missSeen=new Set(),gid="";
+
+function snap(){
+  const c=G.cur||{};
+  const v={gid:G.id,ph:G.phase,i:G.i,n:G.qs.length,names:G.names,sc:G.sc,secs:G.secs};
+  if(G.phase==="end")return v;
+  Object.assign(v,{tag:c.tag,q:c.q,opts:c.opts,bad:G.bad,lock:G.lock,left:Math.max(0,G.deadline-Date.now())});
+  if(G.phase==="reveal")Object.assign(v,{ans:c.ans,win:G.win,word:c.word,mean:c.mean,missed:G.missed});
+  return v;
+}
+function broadcast(){const v=snap();render(v);if(online==="host")send({t:"state",v})}
+function clearTimers(){if(G){clearTimeout(G.tq);clearTimeout(G.tw);clearTimeout(G.tn)}}
+function newGame(names){
+  clearTimers();
+  G={id:Math.random().toString(36).slice(2,8),names,sc:[0,0],i:0,secs:+$("secs").value,qs:buildQs(+$("rounds").value,$("mode").value)};
+  startQ();
+}
+function startQ(){
+  clearTimers();
+  if(G.i>=G.qs.length){G.phase="end";return broadcast()}
+  G.cur=G.qs[G.i];G.lock=[false,false];G.bad=[[],[]];G.phase="q";G.win=-2;G.cand=[];G.missed=false;
+  G.deadline=Date.now()+G.secs*1000;
+  G.tq=setTimeout(()=>finish(-1),G.secs*1000);
+  broadcast();
+}
+function pick(p,o,rt){
+  if(!G||G.phase!=="q"||G.lock[p]||G.cand.some(c=>c.p===p)||!(o>=0&&o<4))return;
+  if(G.cur.opts[o]===G.cur.ans){
+    G.cand.push({p,rt:+rt||0});
+    if(G.cand.length===1)G.tw=setTimeout(resolveWin,online?350:0);
+  }else{
+    G.sc[p]--;G.lock[p]=true;G.bad[p].push(o);G.missed=true;
+    const other=1-p;
+    if(G.lock[other]&&!G.cand.length)finish(-1);else broadcast();
+  }
+}
+function resolveWin(){if(!G.cand.length)return;const c=G.cand.reduce((a,b)=>b.rt<a.rt?b:a);G.sc[c.p]++;finish(c.p)}
+function finish(w){
+  if(!G||G.phase!=="q")return;clearTimers();
+  G.phase="reveal";G.win=w;if(w<0)G.missed=true;
+  broadcast();
+  G.tn=setTimeout(()=>{G.i++;startQ()},w<0?2600:1900);
+}
+
+/* ---------- rendering (same for local, host and guest) ---------- */
+function paneHTML(v,p){
+  const live=!online||me===p;
+  const keys=online?["1","2","3","4"]:KEYS[p];
+  const bad=Array.isArray(v.bad&&v.bad[p])?v.bad[p]:[];
+  const opts=Array.isArray(v.opts)?v.opts.slice(0,4):[];
+  const nm=v.names&&v.names[p]!=null?v.names[p]:"Player";
+  return `<div class="ph"><div class="pname">${esc(nm)}${online&&me===p?" (you)":""}</div><div class="pscore">${Number(v.sc&&v.sc[p])||0}</div></div>`+
+   (live?`<div class="keys">Keys: ${keys.map(k=>k.toUpperCase()).join(" ")}</div>`:`<div class="keys">Opponent</div>`)+
+   `<div class="opts">${opts.map((o,i)=>{let cl="opt";if(v.ph==="reveal"&&o===v.ans)cl+=" good";else if(bad.includes(i))cl+=" bad";
+     return `<button class="${cl}" data-p="${p}" data-i="${i}"><span class="k">${esc(keys[i])}</span><span>${esc(o)}</span></button>`}).join("")}</div><div class="flash"></div>`;
+}
+function flash(p,txt,col){const f=document.querySelectorAll(".flash")[p];if(!f)return;f.textContent=txt;f.style.background=col;f.classList.add("on");setTimeout(()=>f.classList.remove("on"),650)}
+function render(v){
+  if(!v||typeof v!=="object")return;
+  if(v.gid!==gid){gid=v.gid;misses=[];missSeen=new Set();V=null;curKey="";curQ=""}
+  if(v.ph==="end")return renderEnd(v);
+  if(v.ph!=="q"&&v.ph!=="reveal")return;
+  showScreen("game");
+  const key=[v.ph,v.i,JSON.stringify(v.sc),JSON.stringify(v.bad)].join("|");
+  if(key===curKey)return;
+  const prev=V;V=v;curKey=key;
+  $("pa").innerHTML=paneHTML(v,0);$("pb").innerHTML=paneHTML(v,1);
+  [$("pa"),$("pb")].forEach((el,p)=>{el.classList.toggle("locked",!!(v.lock&&v.lock[p]));el.classList.toggle("peek",!!online&&me!==p)});
+  $("qnum").textContent=`Question ${(+v.i||0)+1} of ${+v.n||0}`;
+  $("qtag").textContent=v.tag||"";$("q").textContent=v.q||"";
+  if(prev&&prev.i===v.i)[0,1].forEach(p=>{const d=(v.sc[p]||0)-(prev.sc[p]||0);if(d>0)flash(p,"+1","rgba(46,204,113,.85)");if(d<0)flash(p,"−1","rgba(0,0,0,.6)")});
+  const qk=v.gid+":"+v.i;
+  if(v.ph==="q"){
+    $("ans").innerHTML="&nbsp;";
+    if(qk!==curQ){curQ=qk;shownAt=Date.now();deadline=Date.now()+(+v.left||0);const total=(+v.secs||15)*1000;
+      clearInterval(tick);tick=setInterval(()=>{const l=Math.max(0,deadline-Date.now());$("timer").style.width=(l/total*100)+"%";if(!l)clearInterval(tick)},100)}
+  }else{
+    clearInterval(tick);curQ=qk;
+    const w=+v.win;
+    $("ans").innerHTML=(w<0?"Nobody got it. ":`<b>${esc(v.names[w])}</b> got it! `)+`Answer: <b>${esc(v.ans)}</b>`;
+    if(v.missed&&!missSeen.has(qk)){missSeen.add(qk);misses.push([String(v.word),String(v.mean)])}
+  }
+}
+function renderEnd(v){
+  clearInterval(tick);showScreen("end");document.body.classList.remove("flip");
+  const a=+v.sc[0]||0,b=+v.sc[1]||0;
+  $("win").textContent=a===b?"It's a tie!":`${a>b?v.names[0]:v.names[1]} wins!`;
+  $("final").innerHTML=`<div style="background:var(--red)"><b>${a}</b>${esc(v.names[0])}</div><div style="background:var(--blue)"><b>${b}</b>${esc(v.names[1])}</div>`;
+  $("misshead").textContent=misses.length?`Words to study (${misses.length})`:"No missed words. Nice!";
+  $("miss").innerHTML=misses.map(m=>`<tr><td><b>${esc(m[0])}</b></td><td>${esc(m[1])}</td></tr>`).join("");
+  $("again").classList.toggle("hide",online==="guest");
+  $("endNote").textContent=online==="guest"?"Waiting for the host to start a new game…":"";
+}
+
+/* ---------- input ---------- */
+function act(p,o){
+  if(online&&p!==me)return;
+  const rt=Date.now()-shownAt;
+  if(online==="guest"){
+    if(!V||V.ph!=="q"||(V.lock&&V.lock[1]))return;
+    const k=V.gid+":"+V.i+":"+o;if(sentFor===k)return;sentFor=k;
+    send({t:"ans",a:{g:V.gid,i:V.i,o,rt}});
+    const b=document.querySelector(`.opt[data-p="1"][data-i="${o}"]`);if(b)b.style.outline="3px solid #fff";
+  }else pick(p,o,rt);
+}
+$("game").addEventListener("click",e=>{const b=e.target.closest(".opt");if(b)act(+b.dataset.p,+b.dataset.i)});
+document.addEventListener("keydown",e=>{
+  if($("game").classList.contains("hide")||e.repeat||e.target.tagName==="INPUT")return;
+  const k=e.key.toLowerCase();
+  if(online){let i=["1","2","3","4"].indexOf(k);if(i<0)i=KEYS[0].indexOf(k);if(i<0)i=KEYS[1].indexOf(k);if(i>=0)act(me,i);return}
+  let i=KEYS[0].indexOf(k);if(i>=0)return act(0,i);i=KEYS[1].indexOf(k);if(i>=0)act(1,i);
+});
+
+/* ---------- local mode ---------- */
+const nm=id=>($(id).value.trim()||id.toUpperCase()).slice(0,14);
+function saveNames(){try{localStorage.setItem("vd-names",JSON.stringify([$("n1").value,$("n2").value]))}catch(e){}}
+try{const n=JSON.parse(localStorage.getItem("vd-names")||"null");if(n){$("n1").value=n[0]||"";$("n2").value=n[1]||""}}catch(e){}
+$("start").onclick=()=>{saveNames();online=null;me=null;document.body.classList.toggle("flip",$("seat").value==="face");newGame([nm("n1"),nm("n2")])};
+$("quit").onclick=()=>{
+  if(online==="guest"){leaveRoom();return}
+  if(!G)return;clearTimers();G.phase="end";broadcast();
+};
+$("again").onclick=()=>{
+  if(online==="host"){clearTimers();G=null;showScreen("lobby");send({t:"state",v:{gid:"",ph:"lobby"}});updLobby()}
+  else showScreen("setup");
+};
+$("endLeave").onclick=()=>{if(online)leaveRoom();else showScreen("setup")};
+
+/* ---------- online (PeerJS, direct device-to-device) ---------- */
+const err=t=>{$("onlineErr").textContent=t};
+let peer=null,conn=null;
+const send=o=>{try{if(conn&&conn.open)conn.send(o)}catch(e){}};
+function updLobby(){
+  const ok=!!(conn&&conn.open);
+  $("dot").classList.toggle("on",ok);
+  if(online==="host"){
+    guestPeer=ok?"guest":null;
+    $("lobbyStatus").textContent=ok?`${guestName} joined! Ready when you are.`:"Waiting for your friend…";
+    $("go").disabled=!ok;
+    $("net").textContent=(G&&G.phase!=="end"&&!ok)?"Your friend disconnected.":"";
+  }else{
+    $("lobbyStatus").textContent=ok?`Connected to ${hostName}. Waiting for them to start…`:"Connecting…";
+    $("net").textContent=(V&&!ok&&!$("game").classList.contains("hide"))?"The host disconnected.":"";
+  }
+}
+function onData(d){
+  if(!d||typeof d!=="object")return;
+  if(d.t==="hello"){const n=String(d.nm||"").slice(0,14)||"Friend";if(online==="host")guestName=n;else hostName=n;updLobby();return}
+  if(online==="host"&&d.t==="ans"){const a=d.a||{};if(!G||a.g!==G.id||a.i!==G.i)return;pick(1,Math.floor(+a.o),Math.max(0,Math.min(60000,+a.rt||0)));return}
+  if(online==="guest"&&d.t==="state"){const v=d.v;if(!v||typeof v!=="object")return;
+    if(v.ph==="lobby"){showScreen("lobby");updLobby();return}
+    if(!Array.isArray(v.names)||!Array.isArray(v.sc))return;render(v)}
+}
+function wire(c){
+  conn=c;
+  c.on("open",()=>{send({t:"hello",nm:nm("n1")});updLobby();if(online==="host"&&G)send({t:"state",v:snap()})});
+  c.on("data",onData);
+  c.on("close",()=>{if(conn===c)conn=null;updLobby()});
+  c.on("error",()=>updLobby());
+}
+function enter(role,code){
+  err("");saveNames();
+  if(typeof Peer!=="function"){err("Couldn't load the online part. Check your internet and refresh.");return}
+  if(peer)try{peer.destroy()}catch(e){}
+  online=role;me=role==="host"?0:1;gid="";V=null;curKey="";conn=null;
+  const id="vocabduel-"+code.toLowerCase();
+  peer=role==="host"?new Peer(id):new Peer();
+  peer.on("error",e=>{
+    if(e.type==="unavailable-id"&&role==="host"){$("create").click();return}
+    if(e.type==="peer-unavailable"){err("No game found with that code. Check it and try again.");leaveRoom(true);return}
+    if(e.type==="network"||e.type==="server-error"||e.type==="socket-error"){err("Connection problem. Check your internet and try again.");}
+    updLobby();
+  });
+  if(role==="host"){
+    peer.on("open",()=>{showScreen("lobby");updLobby()});
+    peer.on("connection",c=>{if(conn&&conn.open){try{c.close()}catch(e){}return}wire(c)});
+    clearInterval(hb);hb=setInterval(()=>{if(online==="host"&&G)send({t:"state",v:snap()})},1500);
+    $("hostView").classList.remove("hide");$("codeShow").textContent=code.toUpperCase();$("go").classList.remove("hide");
+  }else{
+    peer.on("open",()=>{wire(peer.connect(id,{reliable:true}))});
+    $("hostView").classList.add("hide");$("go").classList.add("hide");
+    showScreen("lobby");
+  }
+  document.body.classList.remove("flip");
+  $("lobbyStatus").textContent="Connecting…";$("dot").classList.remove("on");$("go").disabled=true;
+}
+function leaveRoom(keepErr){
+  clearTimers();clearInterval(hb);clearInterval(tick);G=null;
+  try{if(conn)conn.close()}catch(e){}try{if(peer)peer.destroy()}catch(e){}
+  conn=null;peer=null;online=null;me=null;guestPeer=null;
+  showScreen("setup");
+}
+$("create").onclick=()=>{const c=Array.from({length:4},()=>"abcdefghjkmnpqrstuvwxyz23456789"[Math.floor(Math.random()*31)]).join("");enter("host",c)};
+$("joinBtn").onclick=()=>{const c=$("code").value.trim().toLowerCase();if(!/^[a-z0-9]{4}$/.test(c)){err("Type the 4-letter code your friend gave you.");return}enter("guest",c)};
+$("code").addEventListener("keydown",e=>{if(e.key==="Enter")$("joinBtn").click()});
+$("go").onclick=()=>{if(!guestPeer)return;newGame([nm("n1"),guestName])};
+$("leave").onclick=()=>leaveRoom();
+}
+</script>
+</body>
+</html>
